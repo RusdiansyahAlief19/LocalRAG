@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+
+# Rag Storage (ChromaDB)
+chroma_db/
+
+# Virtual Environment
+venv/
+.venv/
