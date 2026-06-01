@@ -60,13 +60,26 @@ if uploaded_file is not None:
         st.success("✅ Katalog Berhasil Dimuat dengan Multilingual Embedding!")
     
     db = st.session_state.vector_db
+
+    # --- MEMORI CHAT (Week 4) ---
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Render ulang riwayat pesan setiap kali ada interaksi
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
     user_query = st.chat_input("Tanyakan paket atau harga armada...")
 
     if user_query:
+        # Simpan pesan user ke memori
+        st.session_state.messages.append({"role": "user", "content": user_query})
+        
         with st.chat_message("user"):
             st.markdown(user_query)
 
-        # 1. Kita perbanyak tarikan datanya (k=4) agar tidak ada yang terlewat
+        # 1. Tarik data relevan HANYA menggunakan query terbaru (k=4)
         results = db.similarity_search(user_query, k=4)
         konteks = "\n".join([res.page_content for res in results])
 
@@ -76,32 +89,38 @@ if uploaded_file is not None:
 
         with st.chat_message("assistant"):
             with st.spinner("Menganalisis katalog..."):
-                # 3. Prompt yang lebih luwes tapi tetap aman
-                prompt = f"""
-                Anda adalah Agen Customer Service SAB Tour & Travel yang ramah, cerdas, dan pintar berjualan.
-                Tugas Anda adalah melayani pelanggan berdasarkan Data Katalog berikut.
-                
-                Data Katalog:
+                # 3. System Prompt dengan aturan baru (termasuk output terstruktur)
+                system_prompt = f"""Sebagai Customer Service SAB Tour & Travel, jawab HANYA berdasarkan KATALOG.
+
+                KATALOG:
                 {konteks}
-                
-                Pertanyaan Pelanggan: {user_query}
-                
-                ATURAN KERJA:
-                1. JAWAB UTAMA: Jawab pertanyaan inti pelanggan secara lengkap dan ramah sesuai Data Katalog.
-                2. KALKULASI CERDAS: Jika pelanggan meminta durasi/jumlah yang lebih besar dari standar di katalog (misal: sewa 2 hari padahal di katalog harga 1 hari), Anda WAJIB menghitung total estimasinya (Kalikan harga dasar dengan jumlah hari). Tambahkan kalimat "Ini adalah estimasi biaya...".
-                3. REKOMENDASI (CROSS-SELLING): Di akhir jawaban, selalu tawarkan atau sebutkan 1 paket wisata/armada lain yang ada di dalam Data Katalog untuk memancing minat pelanggan.
-                4. Jika informasi destinasi TIDAK ADA di Data Katalog, tolak dengan sopan dan tawarkan destinasi yang TERSEDIA di katalog.
-                5. JANGAN PERNAH mengarang harga dasar yang tidak ada di katalog.
+
+                ATURAN MUTLAK:
+                1. Jika rute/tujuan TIDAK ADA di teks KATALOG, Anda WAJIB langsung menjawab: "Mohon maaf, rute tersebut belum tersedia. Layanan kami saat ini hanya untuk Malang, Batu, Bromo, dan Bali." (TIDAK BOLEH MENAMBAHKAN KALIMAT LAIN).
+                2. Jika kota ADA di KATALOG, sebutkan harga dan fasilitasnya. Kalikan harga jika jumlah orang/hari bertambah.
+                3. JANGAN PERNAH menawarkan paket kota lain jika kota yang diminta tidak ada.
+                4. Tampilkan rincian harga dan fasilitas dalam bentuk daftar poin (bullet points) atau tabel Markdown agar rapi dan mudah dibaca.
                 """
                 
-                response = ollama.generate(
+                # Susun pesan untuk AI (System Prompt + Riwayat Percakapan)
+                messages_for_ai = [{"role": "system", "content": system_prompt}]
+                for msg in st.session_state.messages:
+                    messages_for_ai.append({"role": msg["role"], "content": msg["content"]})
+                
+                # Gunakan ollama.chat bukan generate agar AI membaca seluruh riwayat
+                response = ollama.chat(
                     model="qwen2.5:3b", 
-                    prompt=prompt,
+                    messages=messages_for_ai,
                     options={
                         "temperature": 0.0,
                         "num_gpu": 0
                     }
                 )
-                st.markdown(response['response'])
+                
+                ai_response = response['message']['content']
+                st.markdown(ai_response)
+                
+                # Simpan jawaban AI ke memori
+                st.session_state.messages.append({"role": "assistant", "content": ai_response})
 else:
-    st.info("👋 Silakan upload file `katalog_sab.txt` di sidebar untuk mulai.")
+    st.info("👋 Silakan upload file `katalog_sab.txt` atau `data.pdf` di sidebar untuk mulai.")
